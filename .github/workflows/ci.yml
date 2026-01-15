@@ -50,8 +50,8 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: 51.77.145.52
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
+          username: devops
+          password: 310398
           script: |
             set -e
             cd ~/deploy
