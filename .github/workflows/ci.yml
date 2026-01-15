@@ -1,11 +1,13 @@
-name: CI - Build & Push Backend Image
+name: CI/CD - Build, Push & Deploy to OVH VPS
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
 
 jobs:
   build:
+    name: Build & Push Docker Image
     runs-on: ubuntu-latest
 
     permissions:
@@ -13,19 +15,57 @@ jobs:
       packages: write
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout source code
+        uses: actions/checkout@v4
 
-    - name: Login to GHCR
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-  
-    - name: Build & Push Backend Image
-      run: |
-        IMAGE_NAME=$(echo "${{ github.actor }}" | tr '[:upper:]' '[:lower:]')
-        docker build -t ghcr.io/$IMAGE_NAME/cicd-backend:latest ./backend
-        docker push ghcr.io/$IMAGE_NAME/cicd-backend:latest
+      - name: Set lowercase image namespace
+        id: vars
+        run: |
+          echo "IMAGE_OWNER=$(echo '${{ github.actor }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ env.IMAGE_OWNER }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ghcr.io/${{ env.IMAGE_OWNER }}/cicd-backend:latest \
+            ./backend
+
+      - name: Push Docker image
+        run: |
+          docker push ghcr.io/${{ env.IMAGE_OWNER }}/cicd-backend:latest
+
+  deploy:
+    name: Deploy to OVH VPS
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            cd ~/deploy
+
+            echo "Logging into GHCR on VPS"
+            docker login ghcr.io \
+              -u ${{ secrets.GHCR_USER }} \
+              -p ${{ secrets.GHCR_TOKEN }}
+
+            echo "Pulling latest image"
+            docker compose pull
+
+            echo "Deploying containers"
+            docker compose up -d
+
+            echo "Deployment successful"
 
